@@ -139,25 +139,47 @@ class BreadcrumbsWidget extends WidgetType {
 		wrap.style.zIndex = "999";
 
 		for (let i = 0; i < this.pathParts.length; i++) {
-			const pathPart = this.pathParts[i];
 			const linkElement = document.createElement("a");
-			linkElement.textContent = pathPart;
+			linkElement.textContent = this.pathParts[i];
 			linkElement.setAttribute("data-index", i.toString());
 			linkElement.style.color = this.plugin.settings.fontColor;
 			linkElement.addEventListener("click", (event) => {
-				const index =
-					event &&
-					event.target &&
-					(event.target as HTMLElement)?.getAttribute("data-index");
-				console.log(this.path, index);
+				const index = parseInt(
+					(event &&
+						event.target &&
+						(event.target as HTMLElement)?.getAttribute(
+							"data-index"
+						)) ||
+						"0"
+				);
 				if (this.plugin.settings.mode === "default") {
 					(app as any).commands.executeCommandById(
 						"file-explorer:reveal-active-file"
 					);
 				} else {
-					(app as any).commands.executeCommandById(
-						"file-tree-alternative:reveal-active-file"
-					);
+					if (index === this.pathParts.length - 1) {
+						(app as any).commands.executeCommandById(
+							"file-tree-alternative:reveal-active-file"
+						);
+					} else {
+						let query = "/";
+						if (index > 0) {
+							query = this.pathParts
+								.slice(1, index + 1)
+								.join("/");
+						}
+						const button = document.querySelector(
+							`div[data-path="${query}"] .oz-folder-block`
+						);
+						if (button) {
+							const clickEvent = new MouseEvent("click", {
+								view: window,
+								bubbles: true,
+								cancelable: true,
+							});
+							button.dispatchEvent(clickEvent);
+						}
+					}
 				}
 			});
 			wrap.appendChild(linkElement);
