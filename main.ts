@@ -72,7 +72,7 @@ const DEFAULT_SETTINGS: BreadcrumbsSettings = {
 export default class Breadcrumbs extends Plugin {
 	settings: BreadcrumbsSettings;
 	editorExtension: Extension[];
-	forcerRfresh: boolean;
+	forceRefresh: boolean;
 
 	async onload() {
 		await this.loadSettings();
@@ -81,6 +81,14 @@ export default class Breadcrumbs extends Plugin {
 		this.addSettingTab(new BreadcrumbsSettingTab(this.app, this));
 
 		this.loadExtension();
+		this.registerEvent(
+			this.app.workspace.on("file-open", () => this.refresh())
+		);
+		this.registerEvent(
+			this.app.vault.on("rename", (file) => {
+				this.refresh();
+			})
+		);
 	}
 
 	onunload() {}
@@ -99,7 +107,7 @@ export default class Breadcrumbs extends Plugin {
 	}
 
 	public async refresh() {
-		this.forcerRfresh = true;
+		this.forceRefresh = true;
 		const updatedExt = getViewPlugin(this);
 		this.editorExtension[0] = updatedExt;
 		this.app.workspace.updateOptions();
@@ -120,11 +128,11 @@ class BreadcrumbsWidget extends WidgetType {
 	}
 
 	eq(other: BreadcrumbsWidget) {
-		return other.path === this.path && !this.plugin.forcerRfresh;
+		return other.path === this.path && !this.plugin.forceRefresh;
 	}
 
 	toDOM() {
-		this.plugin.forcerRfresh = false;
+		this.plugin.forceRefresh = false;
 		const wrap = document.createElement("div");
 		wrap.style.position = "fixed";
 		wrap.style.top = "0";
