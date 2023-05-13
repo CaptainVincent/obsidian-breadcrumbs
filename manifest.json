@@ -1,11 +1,11 @@
 {
-	"id": "obsidian-sample-plugin",
-	"name": "Sample Plugin",
-	"version": "1.0.0",
+	"id": "obsidian-vs-breadcrumbs",
+	"name": "Vscode Style Breadcrumbs",
+	"version": "0.0.1",
 	"minAppVersion": "0.15.0",
-	"description": "This is a sample plugin for Obsidian. This plugin demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
+	"description": "Show breadcrumbs like vscode style and support navigation functions both with file explorer (core plugin) and the File Tree Alternative (community plugin).",
+	"author": "Captain Vincent",
+	"authorUrl": "https://github.com/CaptainVincent",
 	"fundingUrl": "https://obsidian.md/pricing",
 	"isDesktopOnly": false
 }
