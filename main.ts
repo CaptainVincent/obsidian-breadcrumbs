@@ -9,8 +9,162 @@ import {
 	Setting,
 } from "obsidian";
 import Pickr from "@simonwep/pickr";
-import { WidgetType } from "@codemirror/view";
-import { Extension } from "@codemirror/state";
+
+const clickEvent = new MouseEvent("click", {
+	view: window,
+	bubbles: true,
+	cancelable: true,
+});
+
+function click(query: string) {
+	const button = document.querySelector(
+		`div[data-path="${query}"] .oz-folder-block`
+	);
+	if (button) {
+		button.dispatchEvent(clickEvent);
+		return true;
+	}
+	return false;
+}
+
+interface BreadcrumbsSettings {
+	fontSizeFactor: number;
+	fontColor: string;
+	bgColor: string;
+	separatorColor: string;
+	separator: string;
+	mode: string;
+}
+
+const DEFAULT_SETTINGS: BreadcrumbsSettings = {
+	fontSizeFactor: 100,
+	fontColor: "#757575",
+	bgColor: "#1D2126",
+	separatorColor: "#BFC6CE",
+	separator: "/",
+	mode: "default",
+};
+
+export default class Breadcrumbs extends Plugin {
+	settings: BreadcrumbsSettings;
+	forceRefresh: boolean;
+	postClick: string;
+	editorStyle: Element;
+
+	async onload() {
+		await this.loadSettings();
+
+		// This adds a settings tab so the user can configure various aspects of the plugin
+		this.addSettingTab(new BreadcrumbsSettingTab(this.app, this));
+		this.registerEvent(
+			this.app.workspace.on("file-open", () => this.refresh())
+		);
+		this.registerEvent(
+			this.app.vault.on("rename", (_) => {
+				this.refresh();
+			})
+		);
+	}
+
+	onunload() {}
+
+	async loadSettings() {
+		this.settings = Object.assign(
+			{},
+			DEFAULT_SETTINGS,
+			await this.loadData()
+		);
+	}
+
+	refreshTopOfEditor() {
+		if (this.editorStyle === undefined) {
+			this.editorStyle = document.createElement("style");
+		}
+		let height = `${
+			Math.floor((11 * this.settings.fontSizeFactor) / 100) + 16
+		}px`;
+		this.editorStyle.innerHTML = `.cm-scroller.cm-vimMode { top: ${height}; }`;
+		document.getElementsByTagName("head")[0].appendChild(this.editorStyle);
+	}
+
+	public async refresh() {
+		this.refreshTopOfEditor();
+		let mk: any = this.app.workspace.getActiveViewOfType(MarkdownView);
+		mk.sourceMode.cmEditor.containerEl.appendChild(
+			buildBreadcrumbs(
+				this.settings,
+				app.vault.getName() + "/" + app.workspace.getActiveFile()?.path
+			)
+		);
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
+	}
+}
+
+function buildBreadcrumbs(settings: BreadcrumbsSettings, path: string) {
+	const pathParts = path.split("/");
+	const wrap = document.createElement("div");
+	wrap.style.position = "fixed";
+	wrap.style.top = "0";
+	wrap.style.left = "0";
+	wrap.style.fontSize =
+		Math.floor((11 * settings.fontSizeFactor) / 100).toString() + "px";
+	wrap.style.backgroundColor = settings.bgColor;
+	wrap.style.padding = "8px";
+	wrap.style.width = "100%";
+	wrap.style.zIndex = "999";
+
+	for (let i = 0; i < pathParts.length; i++) {
+		const linkElement = document.createElement("a");
+		linkElement.textContent = pathParts[i];
+		linkElement.setAttribute("data-index", i.toString());
+		linkElement.style.color = settings.fontColor;
+		linkElement.addEventListener("click", (event) => {
+			const index = parseInt(
+				(event &&
+					event.target &&
+					(event.target as HTMLElement)?.getAttribute(
+						"data-index"
+					)) ||
+					"0"
+			);
+			if (settings.mode === "default") {
+				(app as any).commands.executeCommandById(
+					"file-explorer:reveal-active-file"
+				);
+			} else {
+				if (index === pathParts.length - 1) {
+					(app as any).commands.executeCommandById(
+						"file-tree-alternative:reveal-active-file"
+					);
+				} else {
+					(app as any).commands.executeCommandById(
+						"file-tree-alternative:open-file-tree-view"
+					);
+					let query = "/";
+					if (index > 0) {
+						query = pathParts.slice(1, index + 1).join("/");
+					}
+					if (!click(query)) {
+						// this.plugin.postClick = query;
+					}
+				}
+			}
+		});
+		wrap.appendChild(linkElement);
+		if (i !== pathParts.length - 1) {
+			const separator = document.createElement("span");
+			let token = settings.separator !== "" ? settings.separator : "/";
+			separator.appendChild(document.createTextNode(` ${token} `));
+			separator.style.color = settings.separatorColor;
+			wrap.appendChild(separator);
+		}
+	}
+	return wrap;
+}
+
 type NavigationMode = "default" | "alternative";
 
 function getPickrSettings(opts: {
@@ -50,206 +204,6 @@ function getPickrSettings(opts: {
 function onPickrCancel(instance: Pickr) {
 	instance.hide();
 }
-
-interface BreadcrumbsSettings {
-	fontSizeFactor: number;
-	fontColor: string;
-	bgColor: string;
-	separatorColor: string;
-	separator: string;
-	mode: string;
-}
-
-const DEFAULT_SETTINGS: BreadcrumbsSettings = {
-	fontSizeFactor: 100,
-	fontColor: "#757575",
-	bgColor: "#1D2126",
-	separatorColor: "#BFC6CE",
-	separator: "/",
-	mode: "default",
-};
-
-export default class Breadcrumbs extends Plugin {
-	settings: BreadcrumbsSettings;
-	editorExtension: Extension[];
-	forceRefresh: boolean;
-
-	async onload() {
-		await this.loadSettings();
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new BreadcrumbsSettingTab(this.app, this));
-
-		this.loadExtension();
-		this.registerEvent(
-			this.app.workspace.on("file-open", () => this.refresh())
-		);
-		this.registerEvent(
-			this.app.vault.on("rename", (file) => {
-				this.refresh();
-			})
-		);
-	}
-
-	onunload() {}
-
-	loadExtension() {
-		this.editorExtension = [getViewPlugin(this)];
-		this.registerEditorExtension(this.editorExtension);
-	}
-
-	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData()
-		);
-	}
-
-	public async refresh() {
-		this.forceRefresh = true;
-		const updatedExt = getViewPlugin(this);
-		this.editorExtension[0] = updatedExt;
-		this.app.workspace.updateOptions();
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
-
-class BreadcrumbsWidget extends WidgetType {
-	readonly pathParts: string[];
-	constructor(readonly plugin: Breadcrumbs, readonly path: string) {
-		super();
-		this.plugin = plugin;
-		this.path = path;
-		this.pathParts = this.path.split("/");
-	}
-
-	eq(other: BreadcrumbsWidget) {
-		return other.path === this.path && !this.plugin.forceRefresh;
-	}
-
-	toDOM() {
-		this.plugin.forceRefresh = false;
-		const wrap = document.createElement("div");
-		wrap.style.position = "fixed";
-		wrap.style.top = "0";
-		wrap.style.left = "0";
-		wrap.style.fontSize =
-			Math.floor(
-				(11 * this.plugin.settings.fontSizeFactor) / 100
-			).toString() + "px";
-		wrap.style.backgroundColor = this.plugin.settings.bgColor;
-		wrap.style.padding = "8px";
-		wrap.style.width = "100%";
-		wrap.style.zIndex = "999";
-
-		for (let i = 0; i < this.pathParts.length; i++) {
-			const linkElement = document.createElement("a");
-			linkElement.textContent = this.pathParts[i];
-			linkElement.setAttribute("data-index", i.toString());
-			linkElement.style.color = this.plugin.settings.fontColor;
-			linkElement.addEventListener("click", (event) => {
-				const index = parseInt(
-					(event &&
-						event.target &&
-						(event.target as HTMLElement)?.getAttribute(
-							"data-index"
-						)) ||
-						"0"
-				);
-				if (this.plugin.settings.mode === "default") {
-					(app as any).commands.executeCommandById(
-						"file-explorer:reveal-active-file"
-					);
-				} else {
-					if (index === this.pathParts.length - 1) {
-						(app as any).commands.executeCommandById(
-							"file-tree-alternative:reveal-active-file"
-						);
-					} else {
-						let query = "/";
-						if (index > 0) {
-							query = this.pathParts
-								.slice(1, index + 1)
-								.join("/");
-						}
-						const button = document.querySelector(
-							`div[data-path="${query}"] .oz-folder-block`
-						);
-						if (button) {
-							const clickEvent = new MouseEvent("click", {
-								view: window,
-								bubbles: true,
-								cancelable: true,
-							});
-							button.dispatchEvent(clickEvent);
-						}
-					}
-				}
-			});
-			wrap.appendChild(linkElement);
-			if (i !== this.pathParts.length - 1) {
-				const separator = document.createElement("span");
-				let token =
-					this.plugin.settings.separator !== ""
-						? this.plugin.settings.separator
-						: "/";
-				separator.appendChild(document.createTextNode(` ${token} `));
-				separator.style.color = this.plugin.settings.separatorColor;
-				wrap.appendChild(separator);
-			}
-		}
-		return wrap;
-	}
-
-	ignoreEvent() {
-		return false;
-	}
-}
-
-import {
-	ViewUpdate,
-	ViewPlugin,
-	DecorationSet,
-	Decoration,
-	EditorView,
-} from "@codemirror/view";
-
-const getViewPlugin = (plugin: Breadcrumbs) =>
-	ViewPlugin.fromClass(
-		class {
-			decorations: DecorationSet;
-
-			constructor(view: EditorView) {
-				this.decorations = this.decorate();
-			}
-
-			decorate(): DecorationSet {
-				let path = app.workspace.getActiveFile()?.path ?? null;
-				const widgets: Decoration[] = [];
-				if (path != null) {
-					widgets.push(
-						Decoration.widget({
-							widget: new BreadcrumbsWidget(
-								plugin,
-								app.vault.getName() + "/" + path
-							),
-						})
-					);
-				}
-				return Decoration.set(
-					widgets.map((w) => w.range(0)),
-					true
-				);
-			}
-		},
-		{
-			decorations: (v) => v.decorations,
-		}
-	);
 
 class BreadcrumbsSettingTab extends PluginSettingTab {
 	plugin: Breadcrumbs;
