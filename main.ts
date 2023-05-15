@@ -73,22 +73,25 @@ export default class Breadcrumbs extends Plugin {
 	observer: MutationObserver;
 	postClick: string;
 	editorStyle: Element;
+	inner: Element;
 
 	async onload() {
 		await this.loadSettings();
 		this.addSettingTab(new BreadcrumbsSettingTab(this.app, this));
+		this.refresh(true);
 		this.registerEvent(
-			this.app.workspace.on("file-open", () => this.refresh())
+			this.app.workspace.on("file-open", () => this.refresh(true))
 		);
 		this.registerEvent(
 			this.app.vault.on("rename", (_) => {
-				this.refresh();
+				this.refresh(true);
 			})
 		);
 	}
 
 	onunload() {
 		if (this.observer) this.observer.disconnect();
+		this.refresh(false);
 	}
 
 	async loadSettings() {
@@ -99,29 +102,36 @@ export default class Breadcrumbs extends Plugin {
 		);
 	}
 
-	refreshTopOfEditor() {
-		if (this.editorStyle === undefined) {
-			this.editorStyle = document.createElement("style");
+	extendTopOfEditor(on: boolean) {
+		let height = "0px";
+		if (on) {
+			if (this.editorStyle === undefined) {
+				this.editorStyle = document.createElement("style");
+			}
+			height = `${
+				Math.floor((11 * this.settings.fontSizeFactor) / 100) + 16
+			}px`;
 		}
-		let height = `${
-			Math.floor((11 * this.settings.fontSizeFactor) / 100) + 16
-		}px`;
 		this.editorStyle.innerHTML = `.cm-scroller.cm-vimMode { top: ${height}; }`;
 		document.getElementsByTagName("head")[0].appendChild(this.editorStyle);
 	}
 
-	refresh() {
+	refresh(display: boolean) {
+		if (this.inner) this.inner.remove();
 		let mk: any = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (mk) {
-			this.refreshTopOfEditor();
-			mk.sourceMode.cmEditor.containerEl.appendChild(
-				buildBreadcrumbs(
+			if (display) {
+				this.extendTopOfEditor(true);
+				this.inner = buildBreadcrumbs(
 					this,
 					app.vault.getName() +
 						"/" +
 						app.workspace.getActiveFile()?.path
-				)
-			);
+				);
+				mk.sourceMode.cmEditor.containerEl.appendChild(this.inner);
+			} else {
+				this.extendTopOfEditor(false);
+			}
 		}
 	}
 
