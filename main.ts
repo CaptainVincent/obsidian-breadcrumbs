@@ -68,12 +68,14 @@ function createObservable(target: HTMLElement, query: string) {
 	});
 	return observer;
 }
+
 export default class Breadcrumbs extends Plugin {
 	settings: BreadcrumbsSettings;
 	observer: MutationObserver;
 	postClick: string;
+	top: number;
 	editorStyle: Element;
-	inner: Element;
+	manager: { [key: string]: Element } = {};
 
 	async onload() {
 		await this.loadSettings();
@@ -83,7 +85,10 @@ export default class Breadcrumbs extends Plugin {
 			this.app.workspace.on("file-open", () => this.refresh(true))
 		);
 		this.registerEvent(
-			this.app.vault.on("rename", (_) => {
+			this.app.vault.on("rename", () => this.refresh(true))
+		);
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", () => {
 				this.refresh(true);
 			})
 		);
@@ -102,36 +107,56 @@ export default class Breadcrumbs extends Plugin {
 		);
 	}
 
-	extendTopOfEditor(on: boolean) {
-		let height = "0px";
-		if (on) {
+	extendTopOfEditor(onOff: boolean) {
+		if (onOff) {
 			if (this.editorStyle === undefined) {
 				this.editorStyle = document.createElement("style");
 			}
-			height = `${
-				Math.floor((11 * this.settings.fontSizeFactor) / 100) + 16
-			}px`;
+			let height =
+				Math.floor((11 * this.settings.fontSizeFactor) / 100) + 16;
+			if (height !== this.top) {
+				this.top = height;
+				this.editorStyle.innerHTML = `.cm-scroller.cm-vimMode { top: ${height}px; }`;
+				document
+					.getElementsByTagName("head")[0]
+					.appendChild(this.editorStyle);
+			}
+		} else {
+			if (this.editorStyle) this.editorStyle.remove();
 		}
-		this.editorStyle.innerHTML = `.cm-scroller.cm-vimMode { top: ${height}; }`;
-		document.getElementsByTagName("head")[0].appendChild(this.editorStyle);
 	}
 
 	refresh(display: boolean) {
-		if (this.inner) this.inner.remove();
-		let mk: any = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (mk) {
-			if (display) {
-				this.extendTopOfEditor(true);
-				this.inner = buildBreadcrumbs(
-					this,
-					app.vault.getName() +
+		if (display) {
+			this.extendTopOfEditor(true);
+			app.workspace.iterateAllLeaves((leaf) => {
+				if (leaf.getViewState().type === "markdown") {
+					let id = (leaf as any).id;
+					let fullPath =
+						app.vault.getName() +
 						"/" +
-						app.workspace.getActiveFile()?.path
-				);
-				mk.sourceMode.cmEditor.containerEl.appendChild(this.inner);
-			} else {
-				this.extendTopOfEditor(false);
-			}
+						leaf.getViewState().state.file;
+					if (
+						this.manager[id] &&
+						this.manager[id].getAttribute("path") === fullPath
+					) {
+						return;
+					} else {
+						if (this.manager[id]) this.manager[id].remove();
+						this.manager[id] = buildBreadcrumbs(this, fullPath);
+						const sourceElement =
+							leaf.view.containerEl.querySelector(
+								".markdown-source-view"
+							);
+						sourceElement?.appendChild(this.manager[id]);
+					}
+				}
+			});
+		} else {
+			this.extendTopOfEditor(false);
+			Object.values(this.manager).forEach((element: Element) =>
+				(element as Element).remove()
+			);
 		}
 	}
 
@@ -143,6 +168,7 @@ export default class Breadcrumbs extends Plugin {
 function buildBreadcrumbs(plugin: Breadcrumbs, path: string) {
 	const pathParts = path.split("/");
 	const wrap = document.createElement("div");
+	wrap.setAttribute("path", path);
 	wrap.style.position = "fixed";
 	wrap.style.top = "0";
 	wrap.style.left = "0";
@@ -291,7 +317,7 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 					);
 					slider.setDynamicTooltip();
 					await this.plugin.saveSettings();
-					this.plugin.refresh();
+					this.plugin.refresh(true);
 				})
 		);
 
@@ -318,7 +344,7 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 								.toHEXA()
 								.toString();
 							await this.plugin.saveSettings();
-							this.plugin.refresh();
+							this.plugin.refresh(true);
 							instance.hide();
 							instance.addSwatch(color.toHEXA().toString());
 						}
@@ -355,7 +381,7 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 								.toHEXA()
 								.toString();
 							await this.plugin.saveSettings();
-							this.plugin.refresh();
+							this.plugin.refresh(true);
 							instance.hide();
 							instance.addSwatch(color.toHEXA().toString());
 						}
@@ -380,7 +406,7 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.separator = value;
 						await this.plugin.saveSettings();
-						this.plugin.refresh();
+						this.plugin.refresh(true);
 					})
 			);
 
@@ -406,7 +432,7 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 								.toHEXA()
 								.toString();
 							await this.plugin.saveSettings();
-							this.plugin.refresh();
+							this.plugin.refresh(true);
 							instance.hide();
 							instance.addSwatch(color.toHEXA().toString());
 						}
@@ -434,7 +460,7 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 					.onChange((value: NavigationMode) => {
 						this.plugin.settings.mode = value;
 						this.plugin.saveSettings();
-						this.plugin.refresh();
+						this.plugin.refresh(true);
 					});
 			});
 	}
