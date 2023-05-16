@@ -1,13 +1,4 @@
-import {
-	App,
-	Editor,
-	MarkdownView,
-	Modal,
-	Notice,
-	Plugin,
-	PluginSettingTab,
-	Setting,
-} from "obsidian";
+import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
 import Pickr from "@simonwep/pickr";
 
 const clickEvent = new MouseEvent("click", {
@@ -208,10 +199,11 @@ function buildBreadcrumbs(plugin: Breadcrumbs, path: string) {
 					if (index > 0) {
 						query = pathParts.slice(1, index + 1).join("/");
 					}
+					(app as any).commands.executeCommandById(
+						"file-tree-alternative:open-file-tree-view"
+					);
 					if (!getFileTreeViewElement()) {
-						(app as any).commands.executeCommandById(
-							"file-tree-alternative:open-file-tree-view"
-						);
+						// explorer plugin didn't preopened
 						if (
 							this.observer &&
 							this.observer.takeRecords().length !== 0
