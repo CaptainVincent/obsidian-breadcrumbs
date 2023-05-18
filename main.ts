@@ -1,4 +1,11 @@
-import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
+import {
+	App,
+	MarkdownView,
+	Plugin,
+	PluginSettingTab,
+	Setting,
+	WorkspaceLeaf,
+} from "obsidian";
 import Pickr from "@simonwep/pickr";
 
 const clickEvent = new MouseEvent("click", {
@@ -66,28 +73,28 @@ export default class Breadcrumbs extends Plugin {
 	postClick: string;
 	top: number;
 	editorStyle: Element;
-	manager: { [key: string]: Element } = {};
 
 	async onload() {
 		await this.loadSettings();
 		this.addSettingTab(new BreadcrumbsSettingTab(this.app, this));
-		this.refresh(true);
+		this.adjustTopOfEditor(true);
+		this.refresh_all();
 		this.registerEvent(
-			this.app.workspace.on("file-open", () => this.refresh(true))
+			this.app.workspace.on("file-open", () => this.refresh_active())
 		);
 		this.registerEvent(
-			this.app.vault.on("rename", () => this.refresh(true))
+			this.app.vault.on("rename", () => this.refresh_all())
 		);
 		this.registerEvent(
-			this.app.workspace.on("active-leaf-change", () => {
-				this.refresh(true);
-			})
+			this.app.workspace.on("active-leaf-change", () =>
+				this.refresh_all()
+			)
 		);
 	}
 
 	onunload() {
 		if (this.observer) this.observer.disconnect();
-		this.refresh(false);
+		this.adjustTopOfEditor(false);
 	}
 
 	async loadSettings() {
@@ -98,8 +105,8 @@ export default class Breadcrumbs extends Plugin {
 		);
 	}
 
-	extendTopOfEditor(onOff: boolean) {
-		if (onOff) {
+	adjustTopOfEditor(enable: boolean) {
+		if (enable) {
 			if (this.editorStyle === undefined) {
 				this.editorStyle = document.createElement("style");
 			}
@@ -117,123 +124,126 @@ export default class Breadcrumbs extends Plugin {
 		}
 	}
 
-	refresh(display: boolean) {
-		if (display) {
-			this.extendTopOfEditor(true);
-			app.workspace.iterateAllLeaves((leaf) => {
-				if (leaf.getViewState().type === "markdown") {
-					let id = (leaf as any).id;
-					let fullPath =
-						app.vault.getName() +
-						"/" +
-						leaf.getViewState().state.file;
-					if (
-						this.manager[id] &&
-						this.manager[id].getAttribute("path") === fullPath
-					) {
-						return;
+	buildBreadcrumbs(path: string) {
+		const pathParts = path.split("/");
+		const wrap = document.createElement("div");
+		wrap.id = "breadcrumbs";
+		wrap.style.position = "fixed";
+		wrap.style.top = "0";
+		wrap.style.left = "0";
+		wrap.style.fontSize =
+			Math.floor((11 * this.settings.fontSizeFactor) / 100).toString() +
+			"px";
+		wrap.style.backgroundColor = this.settings.bgColor;
+		wrap.style.padding = "8px";
+		wrap.style.width = "100%";
+		wrap.style.zIndex = "999";
+
+		for (let i = 0; i < pathParts.length; i++) {
+			const linkElement = document.createElement("a");
+			linkElement.textContent = pathParts[i];
+			linkElement.setAttribute("data-index", i.toString());
+			linkElement.style.color = this.settings.fontColor;
+			linkElement.addEventListener("click", (event) => {
+				const index = parseInt(
+					(event &&
+						event.target &&
+						(event.target as HTMLElement)?.getAttribute(
+							"data-index"
+						)) ||
+						"0"
+				);
+				if (this.settings.mode === "default") {
+					(app as any).commands.executeCommandById(
+						"file-explorer:reveal-active-file"
+					);
+				} else {
+					if (index === pathParts.length - 1) {
+						(app as any).commands.executeCommandById(
+							"file-tree-alternative:reveal-active-file"
+						);
 					} else {
-						if (this.manager[id]) this.manager[id].remove();
-						this.manager[id] = buildBreadcrumbs(this, fullPath);
-						const sourceElement =
-							leaf.view.containerEl.querySelector(
-								".markdown-source-view"
+						let query = "/";
+						if (index > 0) {
+							query = pathParts.slice(1, index + 1).join("/");
+						}
+						(app as any).commands.executeCommandById(
+							"file-tree-alternative:open-file-tree-view"
+						);
+						if (!getFileTreeViewElement()) {
+							// explorer plugin didn't preopened
+							if (
+								this.observer &&
+								this.observer.takeRecords().length !== 0
+							) {
+								this.observer.disconnect();
+							}
+							this.observer = createObservable(
+								linkElement,
+								query
 							);
-						sourceElement?.appendChild(this.manager[id]);
+							this.observer.observe(
+								this.app.workspace.containerEl,
+								{
+									childList: true,
+									subtree: true,
+								}
+							);
+						} else {
+							click(linkElement, query);
+						}
 					}
 				}
 			});
-		} else {
-			this.extendTopOfEditor(false);
-			Object.values(this.manager).forEach((element: Element) =>
-				(element as Element).remove()
-			);
+			wrap.appendChild(linkElement);
+			if (i !== pathParts.length - 1) {
+				const separator = document.createElement("span");
+				let token =
+					this.settings.separator !== ""
+						? this.settings.separator
+						: "/";
+				separator.appendChild(document.createTextNode(` ${token} `));
+				separator.style.color = this.settings.separatorColor;
+				wrap.appendChild(separator);
+			}
 		}
+		return wrap;
+	}
+
+	build_single(leaf: WorkspaceLeaf, force = false) {
+		let fullPath =
+			this.app.vault.getName() + "/" + leaf.getViewState().state.file;
+		let target = leaf.view.containerEl;
+		if (target.getAttribute("bcpath") !== fullPath || force == true) {
+			target.querySelectorAll("#breadcrumb").forEach((childElement) => {
+				childElement.remove();
+			});
+			const sourceElement = leaf.view.containerEl.querySelector(
+				".markdown-source-view"
+			);
+			sourceElement?.appendChild(this.buildBreadcrumbs(fullPath));
+			target.setAttribute("bcpath", fullPath);
+		}
+	}
+
+	refresh_active() {
+		let active_leaf = app.workspace.getActiveViewOfType(MarkdownView);
+		if (active_leaf) {
+			this.build_single(active_leaf.leaf);
+		}
+	}
+
+	refresh_all(force = false) {
+		app.workspace.iterateAllLeaves((leaf) => {
+			if (leaf.getViewState().type === "markdown") {
+				this.build_single(leaf, force);
+			}
+		});
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
-}
-
-function buildBreadcrumbs(plugin: Breadcrumbs, path: string) {
-	const pathParts = path.split("/");
-	const wrap = document.createElement("div");
-	wrap.setAttribute("path", path);
-	wrap.style.position = "fixed";
-	wrap.style.top = "0";
-	wrap.style.left = "0";
-	wrap.style.fontSize =
-		Math.floor((11 * plugin.settings.fontSizeFactor) / 100).toString() +
-		"px";
-	wrap.style.backgroundColor = plugin.settings.bgColor;
-	wrap.style.padding = "8px";
-	wrap.style.width = "100%";
-	wrap.style.zIndex = "999";
-
-	for (let i = 0; i < pathParts.length; i++) {
-		const linkElement = document.createElement("a");
-		linkElement.textContent = pathParts[i];
-		linkElement.setAttribute("data-index", i.toString());
-		linkElement.style.color = plugin.settings.fontColor;
-		linkElement.addEventListener("click", (event) => {
-			const index = parseInt(
-				(event &&
-					event.target &&
-					(event.target as HTMLElement)?.getAttribute(
-						"data-index"
-					)) ||
-					"0"
-			);
-			if (plugin.settings.mode === "default") {
-				(app as any).commands.executeCommandById(
-					"file-explorer:reveal-active-file"
-				);
-			} else {
-				if (index === pathParts.length - 1) {
-					(app as any).commands.executeCommandById(
-						"file-tree-alternative:reveal-active-file"
-					);
-				} else {
-					let query = "/";
-					if (index > 0) {
-						query = pathParts.slice(1, index + 1).join("/");
-					}
-					(app as any).commands.executeCommandById(
-						"file-tree-alternative:open-file-tree-view"
-					);
-					if (!getFileTreeViewElement()) {
-						// explorer plugin didn't preopened
-						if (
-							this.observer &&
-							this.observer.takeRecords().length !== 0
-						) {
-							this.observe.disconnect();
-						}
-						this.observer = createObservable(linkElement, query);
-						this.observer.observe(this.app.workspace.containerEl, {
-							childList: true,
-							subtree: true,
-						});
-					} else {
-						click(linkElement, query);
-					}
-				}
-			}
-		});
-		wrap.appendChild(linkElement);
-		if (i !== pathParts.length - 1) {
-			const separator = document.createElement("span");
-			let token =
-				plugin.settings.separator !== ""
-					? plugin.settings.separator
-					: "/";
-			separator.appendChild(document.createTextNode(` ${token} `));
-			separator.style.color = plugin.settings.separatorColor;
-			wrap.appendChild(separator);
-		}
-	}
-	return wrap;
 }
 
 type NavigationMode = "default" | "alternative";
@@ -309,7 +319,8 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 					);
 					slider.setDynamicTooltip();
 					await this.plugin.saveSettings();
-					this.plugin.refresh(true);
+					this.plugin.adjustTopOfEditor(true);
+					this.plugin.refresh_all(true);
 				})
 		);
 
@@ -336,7 +347,7 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 								.toHEXA()
 								.toString();
 							await this.plugin.saveSettings();
-							this.plugin.refresh(true);
+							this.plugin.refresh_all(true);
 							instance.hide();
 							instance.addSwatch(color.toHEXA().toString());
 						}
@@ -373,7 +384,7 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 								.toHEXA()
 								.toString();
 							await this.plugin.saveSettings();
-							this.plugin.refresh(true);
+							this.plugin.refresh_all(true);
 							instance.hide();
 							instance.addSwatch(color.toHEXA().toString());
 						}
@@ -398,7 +409,7 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.separator = value;
 						await this.plugin.saveSettings();
-						this.plugin.refresh(true);
+						this.plugin.refresh_all(true);
 					})
 			);
 
@@ -424,7 +435,7 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 								.toHEXA()
 								.toString();
 							await this.plugin.saveSettings();
-							this.plugin.refresh(true);
+							this.plugin.refresh_all(true);
 							instance.hide();
 							instance.addSwatch(color.toHEXA().toString());
 						}
@@ -452,7 +463,7 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 					.onChange((value: NavigationMode) => {
 						this.plugin.settings.mode = value;
 						this.plugin.saveSettings();
-						this.plugin.refresh(true);
+						this.plugin.refresh_all(true);
 					});
 			});
 	}
