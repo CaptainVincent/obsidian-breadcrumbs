@@ -71,13 +71,11 @@ export default class Breadcrumbs extends Plugin {
 	settings: BreadcrumbsSettings;
 	observer: MutationObserver;
 	postClick: string;
-	top: number;
 	editorStyle: Element;
 
 	async onload() {
 		await this.loadSettings();
 		this.addSettingTab(new BreadcrumbsSettingTab(this.app, this));
-		this.adjustTopOfEditor(true);
 		this.refresh_all();
 		this.registerEvent(
 			this.app.workspace.on("file-open", () => this.refresh_active())
@@ -94,7 +92,15 @@ export default class Breadcrumbs extends Plugin {
 
 	onunload() {
 		if (this.observer) this.observer.disconnect();
-		this.adjustTopOfEditor(false);
+		app.workspace.iterateAllLeaves((leaf) => {
+			if (leaf.getViewState().type === "markdown") {
+				let target = leaf.view.containerEl;
+				target.removeAttribute("bcpath");
+				target.querySelectorAll("#breadcrumbs").forEach((element) => {
+					element.remove();
+				});
+			}
+		});
 	}
 
 	async loadSettings() {
@@ -105,32 +111,11 @@ export default class Breadcrumbs extends Plugin {
 		);
 	}
 
-	adjustTopOfEditor(enable: boolean) {
-		if (enable) {
-			if (this.editorStyle === undefined) {
-				this.editorStyle = document.createElement("style");
-			}
-			let height =
-				Math.floor((11 * this.settings.fontSizeFactor) / 100) + 16;
-			if (height !== this.top) {
-				this.top = height;
-				this.editorStyle.innerHTML = `.cm-scroller.cm-vimMode { top: ${height}px; }`;
-				document
-					.getElementsByTagName("head")[0]
-					.appendChild(this.editorStyle);
-			}
-		} else {
-			if (this.editorStyle) this.editorStyle.remove();
-		}
-	}
-
 	buildBreadcrumbs(path: string) {
 		const pathParts = path.split("/");
 		const wrap = document.createElement("div");
 		wrap.id = "breadcrumbs";
-		wrap.style.position = "fixed";
-		wrap.style.top = "0";
-		wrap.style.left = "0";
+		wrap.style.position = "relative";
 		wrap.style.fontSize =
 			Math.floor((11 * this.settings.fontSizeFactor) / 100).toString() +
 			"px";
@@ -168,7 +153,7 @@ export default class Breadcrumbs extends Plugin {
 							query = pathParts.slice(1, index + 1).join("/");
 						}
 						(app as any).commands.executeCommandById(
-							"file-tree-alternative:open-file-tree-view"
+							"file-tree-alternative:reveal-active-file"
 						);
 						if (!getFileTreeViewElement()) {
 							// explorer plugin didn't preopened
@@ -215,13 +200,13 @@ export default class Breadcrumbs extends Plugin {
 			this.app.vault.getName() + "/" + leaf.getViewState().state.file;
 		let target = leaf.view.containerEl;
 		if (target.getAttribute("bcpath") !== fullPath || force == true) {
-			target.querySelectorAll("#breadcrumb").forEach((childElement) => {
-				childElement.remove();
+			target.querySelectorAll("#breadcrumbs").forEach((element) => {
+				element.remove();
 			});
 			const sourceElement = leaf.view.containerEl.querySelector(
 				".markdown-source-view"
 			);
-			sourceElement?.appendChild(this.buildBreadcrumbs(fullPath));
+			sourceElement?.prepend(this.buildBreadcrumbs(fullPath));
 			target.setAttribute("bcpath", fullPath);
 		}
 	}
@@ -319,7 +304,6 @@ class BreadcrumbsSettingTab extends PluginSettingTab {
 					);
 					slider.setDynamicTooltip();
 					await this.plugin.saveSettings();
-					this.plugin.adjustTopOfEditor(true);
 					this.plugin.refresh_all(true);
 				})
 		);
