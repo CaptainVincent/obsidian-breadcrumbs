@@ -6,6 +6,9 @@
 	"description": "Show breadcrumbs like vscode style and support navigation functions both with file explorer (core plugin) and the File Tree Alternative (community plugin).",
 	"author": "Captain Vincent",
 	"authorUrl": "https://github.com/CaptainVincent",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"fundingUrl": {
+		"Ko-fi ☕": "https://ko-fi.com/captainvincent"
+		"Buy Me a Coffee ☕": "https://bmc.link/captainvincent"
+	},
 	"isDesktopOnly": false
 }
